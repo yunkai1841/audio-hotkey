@@ -1,0 +1,8 @@
+# ローカル環境ごとに変わる設定は各自で用意する(サンプルは config.sample.json)
+config.json
+
+# エディタ / OS
+.vscode/
+*.swp
+Thumbs.db
+desktop.ini

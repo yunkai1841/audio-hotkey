@@ -1,0 +1,27 @@
+{
+  "role": "communication",
+  "hotkeys": [
+    {
+      "keys": "Ctrl+Alt+1",
+      "action": "set",
+      "mic": "UGREEN USB MIC",
+      "speaker": "Realtek"
+    },
+    {
+      "keys": "Ctrl+Alt+2",
+      "action": "set",
+      "mic": "G435",
+      "speaker": "G435"
+    },
+    {
+      "keys": "Ctrl+Shift+Alt+M",
+      "action": "cycle-mic",
+      "devices": ["UGREEN USB MIC", "G435", "Webcam internal mic"]
+    },
+    {
+      "keys": "Ctrl+Alt+S",
+      "action": "cycle-speaker",
+      "devices": ["Realtek", "G435"]
+    }
+  ]
+}
