@@ -5,15 +5,15 @@
 ## 使い方
 
 ```powershell
-# 1. デバイス一覧と現在の既定を確認(config.json に書く名前を決める)
-powershell -NoProfile -ExecutionPolicy Bypass -File .\audio-hotkey.ps1 -ListDevices
-
-# 2. config.sample.json を config.json にコピーして編集
-#    (config.json は .gitignore 対象。各自の環境用)
-copy config.sample.json config.json
-
-# 3. 常駐開始(タスクトレイにアイコンが出る。右クリック→終了 で停止)
+# 常駐開始(タスクトレイにスピーカーのアイコンが出る)
+# config.json がまだ無い初回は、設定画面が自動で開きます
 powershell -NoProfile -ExecutionPolicy Bypass -File .\audio-hotkey.ps1
+
+# 常駐せずに設定画面だけ開く
+powershell -NoProfile -ExecutionPolicy Bypass -File .\audio-hotkey.ps1 -Settings
+
+# デバイス一覧と現在の既定を表示
+powershell -NoProfile -ExecutionPolicy Bypass -File .\audio-hotkey.ps1 -ListDevices
 
 # ホットキーを押さずにアクションを試す(デバッグ用)
 powershell -NoProfile -ExecutionPolicy Bypass -File .\audio-hotkey.ps1 -Trigger "Ctrl+Alt+1"
@@ -21,7 +21,28 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\audio-hotkey.ps1 -Trigger 
 
 切替に成功するとタスクトレイからバルーン通知が出ます。
 
+## タスクトレイのメニュー
+
+アイコンを右クリック(ダブルクリックで設定画面を直接開く):
+
+- **割り当て済みのアクション一覧** — クリックでその場で実行
+- **設定...** — 設定画面を開く
+- **設定を再読み込み** — config.json を手で編集したあとの反映用
+- **Windows 起動時に自動で開始** — スタートアップ登録の ON/OFF
+- **終了**
+
+## 設定画面
+
+- 「追加...」「編集...」で割り当てダイアログを開き、**ホットキー欄をクリックして割り当てたいキーの組み合わせをそのまま押す**と登録されます。Win キーを含めたい場合は横の「Win」にチェック。
+- 通常のキーは Ctrl / Alt / Shift / Win のいずれかとの組み合わせが必要です(F1〜F24 やメディアキーは単体でも可)。
+- マイク / スピーカーは接続中のデバイスから選択。名前の一部だけを手入力しても構いません。
+- 「今すぐ実行」で、選択中の割り当てをその場で試せます。
+- 「保存」で config.json に書き出し、ホットキーを即座に登録し直します。他アプリと競合して登録できなかったキーは通知されます。
+- 設定画面を開いている間は、キー入力を受け取るためホットキーが一時停止します。
+
 ## config.json
+
+設定画面が読み書きするファイルです(.gitignore 対象)。手で編集しても構いません。サンプルは `config.sample.json`。
 
 ```json
 {
@@ -59,7 +80,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\audio-hotkey.ps1 -Trigger 
 powershell -NoProfile -ExecutionPolicy Bypass -File .\setup-startup.ps1
 ```
 
-スタートアップフォルダにショートカットを作ります。外すときは `-Remove` を付けて実行。
+スタートアップフォルダにショートカットを作ります。外すときは `-Remove` を付けて実行。トレイメニューの「Windows 起動時に自動で開始」でも同じことができます。
 
 ## 注意
 
