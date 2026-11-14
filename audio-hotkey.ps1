@@ -30,197 +30,9 @@ if (-not $ConfigPath) { $ConfigPath = Join-Path $PSScriptRoot 'config.json' }
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
 
-# ---- CoreAudio / IPolicyConfig / ホットキー用ウィンドウ (C#) ----
+# ---- CoreAudio / IPolicyConfig / ホットキー用ウィンドウ (C#、AudioHotkey.cs) ----
 if (-not ([System.Management.Automation.PSTypeName]'AudioHotkey.Audio').Type) {
-    $cs = @'
-using System;
-using System.Collections.Generic;
-using System.Runtime.InteropServices;
-
-namespace AudioHotkey
-{
-    public enum EDataFlow { eRender = 0, eCapture = 1, eAll = 2 }
-    public enum ERole { eConsole = 0, eMultimedia = 1, eCommunications = 2 }
-
-    [StructLayout(LayoutKind.Sequential)]
-    public struct PropertyKey { public Guid fmtid; public int pid; }
-
-    [StructLayout(LayoutKind.Explicit, Size = 24)]
-    public struct PropVariant
-    {
-        [FieldOffset(0)] public ushort vt;
-        [FieldOffset(8)] public IntPtr p;
-        [FieldOffset(16)] public IntPtr p2;
-    }
-
-    [Guid("886d8eeb-8cf2-4446-8d02-cdba1dbdcf99"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
-    public interface IPropertyStore
-    {
-        [PreserveSig] int GetCount(out int cProps);
-        [PreserveSig] int GetAt(int iProp, out PropertyKey pkey);
-        [PreserveSig] int GetValue(ref PropertyKey key, out PropVariant pv);
-        [PreserveSig] int SetValue(ref PropertyKey key, ref PropVariant pv);
-        [PreserveSig] int Commit();
-    }
-
-    [Guid("D666063F-1587-4E43-81F1-B948E807363F"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
-    public interface IMMDevice
-    {
-        [PreserveSig] int Activate(ref Guid iid, int clsCtx, IntPtr activationParams, out IntPtr iface);
-        [PreserveSig] int OpenPropertyStore(int stgmAccess, out IPropertyStore propertyStore);
-        [PreserveSig] int GetId([MarshalAs(UnmanagedType.LPWStr)] out string id);
-        [PreserveSig] int GetState(out int state);
-    }
-
-    [Guid("0BD7A1BE-7A1A-44DB-8397-CC5392387B5E"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
-    public interface IMMDeviceCollection
-    {
-        [PreserveSig] int GetCount(out int count);
-        [PreserveSig] int Item(int index, out IMMDevice device);
-    }
-
-    [Guid("A95664D2-9614-4F35-A746-DE8DB63617E6"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
-    public interface IMMDeviceEnumerator
-    {
-        [PreserveSig] int EnumAudioEndpoints(EDataFlow dataFlow, int stateMask, out IMMDeviceCollection devices);
-        [PreserveSig] int GetDefaultAudioEndpoint(EDataFlow dataFlow, ERole role, out IMMDevice device);
-        [PreserveSig] int GetDevice([MarshalAs(UnmanagedType.LPWStr)] string id, out IMMDevice device);
-    }
-
-    [ComImport, Guid("BCDE0395-E52F-467C-8E3D-C4579291692E")]
-    public class MMDeviceEnumeratorCom { }
-
-    // 非公開COMだが SoundSwitch 等が長年使っている実績あるインターフェース
-    [Guid("F8679F50-850A-41CF-9C72-430F290290C8"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
-    public interface IPolicyConfig
-    {
-        [PreserveSig] int GetMixFormat([MarshalAs(UnmanagedType.LPWStr)] string dev, out IntPtr fmt);
-        [PreserveSig] int GetDeviceFormat([MarshalAs(UnmanagedType.LPWStr)] string dev, int bDefault, out IntPtr fmt);
-        [PreserveSig] int ResetDeviceFormat([MarshalAs(UnmanagedType.LPWStr)] string dev);
-        [PreserveSig] int SetDeviceFormat([MarshalAs(UnmanagedType.LPWStr)] string dev, IntPtr endpointFmt, IntPtr mixFmt);
-        [PreserveSig] int GetProcessingPeriod([MarshalAs(UnmanagedType.LPWStr)] string dev, int bDefault, IntPtr defPeriod, IntPtr minPeriod);
-        [PreserveSig] int SetProcessingPeriod([MarshalAs(UnmanagedType.LPWStr)] string dev, IntPtr period);
-        [PreserveSig] int GetShareMode([MarshalAs(UnmanagedType.LPWStr)] string dev, IntPtr mode);
-        [PreserveSig] int SetShareMode([MarshalAs(UnmanagedType.LPWStr)] string dev, IntPtr mode);
-        [PreserveSig] int GetPropertyValue([MarshalAs(UnmanagedType.LPWStr)] string dev, int bFxStore, IntPtr key, IntPtr pv);
-        [PreserveSig] int SetPropertyValue([MarshalAs(UnmanagedType.LPWStr)] string dev, int bFxStore, IntPtr key, IntPtr pv);
-        [PreserveSig] int SetDefaultEndpoint([MarshalAs(UnmanagedType.LPWStr)] string dev, ERole role);
-        [PreserveSig] int SetEndpointVisibility([MarshalAs(UnmanagedType.LPWStr)] string dev, int visible);
-    }
-
-    [ComImport, Guid("870af99c-171d-4f9e-af0d-e63df40c2bc9")]
-    public class PolicyConfigClientCom { }
-
-    public class DeviceInfo
-    {
-        public string Id;
-        public string Name;
-        public override string ToString() { return Name; }
-    }
-
-    public static class Audio
-    {
-        static PropertyKey PKEY_Device_FriendlyName = new PropertyKey
-        {
-            fmtid = new Guid("a45c254e-df1c-4efd-8020-67d146a850e0"),
-            pid = 14
-        };
-
-        [DllImport("ole32.dll")]
-        static extern int PropVariantClear(ref PropVariant pv);
-
-        public static List<DeviceInfo> List(EDataFlow flow)
-        {
-            var en = (IMMDeviceEnumerator)new MMDeviceEnumeratorCom();
-            IMMDeviceCollection col;
-            Check(en.EnumAudioEndpoints(flow, 1 /* DEVICE_STATE_ACTIVE */, out col));
-            int n;
-            Check(col.GetCount(out n));
-            var list = new List<DeviceInfo>();
-            for (int i = 0; i < n; i++)
-            {
-                IMMDevice d;
-                Check(col.Item(i, out d));
-                string id;
-                Check(d.GetId(out id));
-                IPropertyStore ps;
-                Check(d.OpenPropertyStore(0 /* STGM_READ */, out ps));
-                PropVariant pv;
-                Check(ps.GetValue(ref PKEY_Device_FriendlyName, out pv));
-                string name = (pv.vt == 31 /* VT_LPWSTR */) ? Marshal.PtrToStringUni(pv.p) : "(unknown)";
-                PropVariantClear(ref pv);
-                list.Add(new DeviceInfo { Id = id, Name = name });
-            }
-            return list;
-        }
-
-        public static string GetDefault(EDataFlow flow, ERole role)
-        {
-            var en = (IMMDeviceEnumerator)new MMDeviceEnumeratorCom();
-            IMMDevice d;
-            int hr = en.GetDefaultAudioEndpoint(flow, role, out d);
-            if (hr != 0) return null; // デバイスが1つもない場合など
-            string id;
-            Check(d.GetId(out id));
-            return id;
-        }
-
-        public static void SetDefault(string id, ERole role)
-        {
-            var pc = (IPolicyConfig)new PolicyConfigClientCom();
-            Check(pc.SetDefaultEndpoint(id, role));
-        }
-
-        static void Check(int hr)
-        {
-            if (hr != 0) Marshal.ThrowExceptionForHR(hr);
-        }
-    }
-
-    public class HotkeyWindow : System.Windows.Forms.NativeWindow, IDisposable
-    {
-        [DllImport("user32.dll", SetLastError = true)]
-        static extern bool RegisterHotKey(IntPtr hWnd, int id, uint fsModifiers, uint vk);
-        [DllImport("user32.dll")]
-        static extern bool UnregisterHotKey(IntPtr hWnd, int id);
-
-        readonly List<int> _ids = new List<int>();
-        public event Action<int> HotkeyPressed;
-
-        public HotkeyWindow()
-        {
-            CreateHandle(new System.Windows.Forms.CreateParams());
-        }
-
-        public bool Register(int id, uint modifiers, uint vk)
-        {
-            bool ok = RegisterHotKey(Handle, id, modifiers, vk);
-            if (ok) _ids.Add(id);
-            return ok;
-        }
-
-        protected override void WndProc(ref System.Windows.Forms.Message m)
-        {
-            if (m.Msg == 0x0312 /* WM_HOTKEY */ && HotkeyPressed != null)
-                HotkeyPressed((int)m.WParam);
-            base.WndProc(ref m);
-        }
-
-        public void UnregisterAll()
-        {
-            foreach (int id in _ids) UnregisterHotKey(Handle, id);
-            _ids.Clear();
-        }
-
-        public void Dispose()
-        {
-            UnregisterAll();
-            DestroyHandle();
-        }
-    }
-}
-'@
-    Add-Type -TypeDefinition $cs -ReferencedAssemblies 'System.Windows.Forms'
+    Add-Type -Path (Join-Path $PSScriptRoot 'AudioHotkey.cs') -ReferencedAssemblies 'System.Windows.Forms'
 }
 
 # ---- ヘルパー ----
@@ -783,15 +595,63 @@ function Show-SettingsDialog {
     }
 }
 
-function Get-AppIcon {
-    if (-not $script:appIcon) {
+function New-AppIconBitmap([int]$Size, [string]$Glyph = [string][char]0xE7F6) {
+    # 角丸のグラデーションタイルに、Windows のアイコンフォントの白いグリフ(既定はヘッドホン)を載せる
+    $bmp = New-Object System.Drawing.Bitmap($Size, $Size, [System.Drawing.Imaging.PixelFormat]::Format32bppArgb)
+    $g = [System.Drawing.Graphics]::FromImage($bmp)
+    try {
+        $g.SmoothingMode = 'AntiAlias'
+        $g.PixelOffsetMode = 'HighQuality'
+        $g.TextRenderingHint = 'AntiAlias'
+
+        $d = [single]($Size * 0.5)   # 角の直径
+        $e = [single]($Size - $d)
+        $path = New-Object System.Drawing.Drawing2D.GraphicsPath
+        $path.AddArc(0, 0, $d, $d, 180, 90)
+        $path.AddArc($e, 0, $d, $d, 270, 90)
+        $path.AddArc($e, $e, $d, $d, 0, 90)
+        $path.AddArc(0, $e, $d, $d, 90, 90)
+        $path.CloseFigure()
+        $rect = New-Object System.Drawing.RectangleF(0, 0, $Size, $Size)
+        $brush = New-Object System.Drawing.Drawing2D.LinearGradientBrush($rect,
+            [System.Drawing.Color]::FromArgb(0x3B, 0x82, 0xF6), [System.Drawing.Color]::FromArgb(0x7C, 0x3A, 0xED), [single]45)
+        $g.FillPath($brush, $path)
+
+        $family = @('Segoe Fluent Icons', 'Segoe MDL2 Assets') | Where-Object {
+            $name = $_
+            [System.Drawing.FontFamily]::Families | Where-Object { $_.Name -eq $name }
+        } | Select-Object -First 1
+        if ($family) {
+            # 小さいサイズ(トレイ)ではグリフを大きめにして潰れにくくする
+            $ratio = if ($Size -le 20) { 0.8 } else { 0.66 }
+            $font = New-Object System.Drawing.Font($family, [single]($Size * $ratio), [System.Drawing.FontStyle]::Regular, [System.Drawing.GraphicsUnit]::Pixel)
+            $sf = New-Object System.Drawing.StringFormat([System.Drawing.StringFormat]::GenericTypographic)
+            $sf.Alignment = 'Center'
+            $sf.LineAlignment = 'Center'
+            $g.DrawString($Glyph, $font, [System.Drawing.Brushes]::White, $rect, $sf)
+            $font.Dispose()
+        }
+        $brush.Dispose()
+        $path.Dispose()
+    } finally {
+        $g.Dispose()
+    }
+    return $bmp
+}
+
+function Get-AppIcon([int]$Size = 32) {
+    # $Size: 設定画面は 32、タスクトレイは小アイコンのサイズ(通常 16)
+    if (-not $script:appIcons) { $script:appIcons = @{} }
+    if (-not $script:appIcons[$Size]) {
         try {
-            $script:appIcon = [System.Drawing.Icon]::ExtractAssociatedIcon((Join-Path $env:SystemRoot 'System32\SndVol.exe'))
+            $bmp = New-AppIconBitmap $Size
+            $script:appIcons[$Size] = [System.Drawing.Icon]::FromHandle($bmp.GetHicon())
+            $bmp.Dispose()
         } catch {
-            $script:appIcon = [System.Drawing.SystemIcons]::Application
+            $script:appIcons[$Size] = [System.Drawing.SystemIcons]::Application
         }
     }
-    return $script:appIcon
+    return $script:appIcons[$Size]
 }
 
 # ---- スタートアップ登録 ----
@@ -876,7 +736,7 @@ $script:settingsOpen = $false
 $script:win = New-Object AudioHotkey.HotkeyWindow
 
 $script:notify = New-Object System.Windows.Forms.NotifyIcon
-$script:notify.Icon = Get-AppIcon
+$script:notify.Icon = Get-AppIcon ([System.Windows.Forms.SystemInformation]::SmallIconSize.Width)
 $script:notify.Text = 'AudioHotkey - オーディオ切替'
 $script:menu = New-Object System.Windows.Forms.ContextMenuStrip
 $script:notify.ContextMenuStrip = $script:menu

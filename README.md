@@ -5,7 +5,7 @@
 ## 使い方
 
 ```powershell
-# 常駐開始(タスクトレイにスピーカーのアイコンが出る)
+# 常駐開始(タスクトレイにヘッドホンのアイコンが出る)
 # config.json がまだ無い初回は、設定画面が自動で開きます
 powershell -NoProfile -ExecutionPolicy Bypass -File .\audio-hotkey.ps1
 
