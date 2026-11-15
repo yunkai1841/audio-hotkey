@@ -624,12 +624,20 @@ function New-AppIconBitmap([int]$Size, [string]$Glyph = [string][char]0xE7F6) {
         if ($family) {
             # 小さいサイズ(トレイ)ではグリフを大きめにして潰れにくくする
             $ratio = if ($Size -le 20) { 0.8 } else { 0.66 }
-            $font = New-Object System.Drawing.Font($family, [single]($Size * $ratio), [System.Drawing.FontStyle]::Regular, [System.Drawing.GraphicsUnit]::Pixel)
-            $sf = New-Object System.Drawing.StringFormat([System.Drawing.StringFormat]::GenericTypographic)
-            $sf.Alignment = 'Center'
-            $sf.LineAlignment = 'Center'
-            $g.DrawString($Glyph, $font, [System.Drawing.Brushes]::White, $rect, $sf)
-            $font.Dispose()
+            # DrawString の中央揃えは文字枠が基準で、絵柄そのものは左上に寄る。
+            # グリフを輪郭(パス)にして、実際の絵柄の外接矩形をタイルの中心に合わせる
+            $ff = New-Object System.Drawing.FontFamily($family)
+            $glyphPath = New-Object System.Drawing.Drawing2D.GraphicsPath
+            $glyphPath.AddString($Glyph, $ff, 0, [single]($Size * $ratio), (New-Object System.Drawing.PointF(0, 0)),
+                [System.Drawing.StringFormat]::GenericTypographic)
+            $b = $glyphPath.GetBounds()
+            $shift = New-Object System.Drawing.Drawing2D.Matrix
+            $shift.Translate([single](($Size - $b.Width) / 2 - $b.X), [single](($Size - $b.Height) / 2 - $b.Y))
+            $glyphPath.Transform($shift)
+            $g.FillPath([System.Drawing.Brushes]::White, $glyphPath)
+            $shift.Dispose()
+            $glyphPath.Dispose()
+            $ff.Dispose()
         }
         $brush.Dispose()
         $path.Dispose()
