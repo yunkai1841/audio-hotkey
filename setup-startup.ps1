@@ -16,8 +16,11 @@ if ($Remove) {
 
 $ws = New-Object -ComObject WScript.Shell
 $lnk = $ws.CreateShortcut($lnkPath)
-$lnk.TargetPath = 'powershell.exe'
-$lnk.Arguments = "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$scriptPath`""
+# powershell.exe を直接起動すると -WindowStyle Hidden でもコンソールが一瞬表示される。
+# conhost --headless 経由にして、コンソールウィンドウを最初から作らせない
+$lnk.TargetPath = Join-Path $env:SystemRoot 'System32\conhost.exe'
+$lnk.Arguments = "--headless powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$scriptPath`""
+$lnk.WindowStyle = 7  # 最小化(念のため)
 $lnk.WorkingDirectory = $PSScriptRoot
 $lnk.Description = 'AudioHotkey - オーディオデバイス切替'
 $lnk.Save()
